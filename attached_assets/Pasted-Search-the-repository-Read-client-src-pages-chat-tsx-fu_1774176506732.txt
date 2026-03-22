@@ -1,0 +1,81 @@
+Search the repository. Read client/src/pages/chat.tsx fully — pay special attention to TWO sections: (1) where messages with isActivityTicker are created/injected, and (2) where messages are rendered in the JSX return. Also read client/src/components/results/LiveActivityTicker.tsx.
+PROBLEM: The LiveActivityTicker component exists and is imported, but it is not visible in the chat. Two things are likely broken:
+FIX 1: Inject the ticker message into the messages array
+Search chat.tsx for any code that creates a message with isActivityTicker: true. If this code does NOT exist, add it.
+The ticker message must be injected when a run starts. Find the section in streamChatResponse where parsed.type === 'supervisor_task' or where isRunLane = true is set and setIsWaitingForSupervisor(true) is called. Immediately after, inject the ticker message:
+typescriptconst tickerMsgId = `ticker-${clientRequestId}`;
+setMessages((prev) => {
+  if (prev.some(m => m.id === tickerMsgId)) return prev;
+  const tickerMsg: Message = {
+    id: tickerMsgId,
+    role: 'assistant',
+    content: '',
+    timestamp: new Date(),
+    isActivityTicker: true,
+    tickerRunId: supervisorRunIdRef.current,
+    tickerCrid: clientRequestId,
+  };
+  return [...prev, tickerMsg];
+});
+Also: when parsed.type === 'run_id' arrives (where supervisorRunIdRef.current = parsed.runId), update the ticker message's tickerRunId:
+typescriptsetMessages((prev) => prev.map(m => 
+  m.id === `ticker-${clientRequestId}` && m.isActivityTicker 
+    ? { ...m, tickerRunId: parsed.runId } 
+    : m
+));
+FIX 2: Render the ticker in the message loop
+Find the JSX where messages are mapped to UI elements (the .map() call that renders each message). Find where isIntentNarrative is checked — there should be a render path for intent narrative messages. Add a SIMILAR check for isActivityTicker BEFORE the intent narrative check:
+tsx{/* Activity Ticker */}
+if ('isActivityTicker' in message && (message as any).isActivityTicker) {
+  return (
+    <div key={message.id} className="flex gap-3">
+      <div className="w-8 h-8 flex-shrink-0" /> {/* spacer to align with other messages */}
+      <div className="flex-1">
+        <LiveActivityTicker
+          runId={(message as any).tickerRunId || null}
+          clientRequestId={(message as any).tickerCrid || null}
+          isActive={isWaitingForSupervisor}
+        />
+      </div>
+    </div>
+  );
+}
+```
+
+**FIX 3: Increase timeouts to stop the "still working" banner**
+
+Find these two constants inside the `pollStream` function (inside the `isWaitingForSupervisor` useEffect):
+```
+const SOFT_TIMEOUT_MS = 30_000;
+const HARD_TIMEOUT_MS = 90_000;
+```
+
+Change them to:
+```
+const SOFT_TIMEOUT_MS = 120_000;
+const HARD_TIMEOUT_MS = 300_000;
+```
+
+Also find the `HARD_TIMEOUT_MS` handler that emits the "still_working" banner. It currently creates a message with `stop_reason: 'still_working'`. Remove that entire block that creates the banner message — just keep the console.warn log. The hard timeout should only log, not show a UI banner. The soft timeout banner block should also be removed.
+
+**FIX 4: Dedup leads in RunResultBubble**
+
+In `client/src/components/results/RunResultBubble.tsx`, find where `allLeads` is constructed:
+```
+const allLeads = [...exact, ...closest];
+Replace with:
+typescriptconst allLeads = (() => {
+  const raw = [...exact, ...closest];
+  const seen = new Set<string>();
+  return raw.filter(lead => {
+    const placeId = (lead as any).place_id || (lead as any).placeId;
+    const name = (lead.name || '').toLowerCase().trim();
+    const key = placeId || name;
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (placeId && name) seen.add(name);
+    return true;
+  });
+})();
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).

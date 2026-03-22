@@ -1262,8 +1262,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const terminalDetected = new Set<string>();
     const lastKnownStatus = new Map<string, string>();
     const runFirstSeen = new Map<string, number>();
-    const SOFT_TIMEOUT_MS = 30_000;
-    const HARD_TIMEOUT_MS = 90_000;
+    const SOFT_TIMEOUT_MS = 120_000;
+    const HARD_TIMEOUT_MS = 300_000;
     const ABSOLUTE_TIMEOUT_MS = 600_000;
     const consecutiveFailures = new Map<string, number>();
     const MAX_CONSECUTIVE_FAILURES = 20;
@@ -1393,29 +1393,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             const failCount = consecutiveFailures.get(effectiveKey) || 0;
             if (runElapsed > SOFT_TIMEOUT_MS && failCount >= 5 && !softTimeoutEmitted.has(effectiveKey)) {
               softTimeoutEmitted.add(effectiveKey);
-              console.log(`[Chat][AFR-Poll] Soft timeout for ${effectiveKey} (${Math.round(runElapsed / 1000)}s, ${failCount} failures). Showing retrying bubble.`);
-              const alreadyDelivered2 = deliverySummaryRunIdsRef.current.has(effectiveKey) ||
-                (runId && deliverySummaryRunIdsRef.current.has(runId)) ||
-                (crid && deliverySummaryRunIdsRef.current.has(crid));
-              if (!alreadyDelivered2) {
-                const softMsg: Message = {
-                  id: `ds-${effectiveKey}`,
-                  role: 'assistant',
-                  content: '',
-                  timestamp: new Date(),
-                  source: 'supervisor',
-                  deliverySummary: {
-                    status: 'PENDING',
-                    delivered_exact: [],
-                    delivered_closest: [],
-                    delivered_count: 0,
-                    stop_reason: 'still_working',
-                  } as DeliverySummary,
-                  runId: runId || undefined,
-                  provisional: false,
-                };
-                upsertResultMessage(softMsg);
-              }
+              console.log(`[Chat][AFR-Poll] Soft timeout for ${effectiveKey} (${Math.round(runElapsed / 1000)}s, ${failCount} failures). Polling continues.`);
             }
           }
 
@@ -3518,18 +3496,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 );
               }
 
-              if (chatMessage.isActivityTicker) {
+              if ('isActivityTicker' in chatMessage && (chatMessage as any).isActivityTicker) {
                 return (
                   <div
                     key={chatMessage.id}
-                    className="pl-11"
+                    className="flex gap-3"
                     data-testid={`message-ticker-${chatMessage.id}`}
                   >
-                    <LiveActivityTicker
-                      runId={chatMessage.tickerRunId ?? null}
-                      clientRequestId={chatMessage.tickerCrid ?? null}
-                      isActive={isWaitingForSupervisor && chatMessage.tickerCrid === activeClientRequestId}
-                    />
+                    <div className="w-8 h-8 flex-shrink-0" />
+                    <div className="flex-1">
+                      <LiveActivityTicker
+                        runId={(chatMessage as any).tickerRunId ?? null}
+                        clientRequestId={(chatMessage as any).tickerCrid ?? null}
+                        isActive={isWaitingForSupervisor}
+                      />
+                    </div>
                   </div>
                 );
               }

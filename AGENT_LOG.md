@@ -159,3 +159,28 @@ Four separate changes: two bug fixes in rendering, one removal of the previous s
 - QA a multi-loop run end-to-end: confirm pinned events appear incrementally, live line cycles, pinned events persist after delivery, live line disappears.
 - Consider whether tower_judgement artefacts use `artefact_type === 'combined_delivery'` reliably or whether a fallback is needed.
 - The ECONNREFUSED proxy errors at startup are pre-existing (backend slow to start); not related to this change.
+
+---
+
+## Session: LiveActivityTicker visibility fixes + timeout increases (2026-03-22)
+
+### What Changed
+Follow-up fixes to make the LiveActivityTicker actually visible in the chat, and to stop the "still working" banner from appearing by pushing out the soft and hard timeout thresholds.
+
+### Files Modified
+
+| File | Change |
+|---|---|
+| `client/src/pages/chat.tsx` | (FIX 2) Updated `isActivityTicker` render block: changed wrapper from `pl-11` to `flex gap-3` with an `8×8` spacer div and `flex-1` content div, matching the layout of other assistant messages; simplified `isActive` prop to `isWaitingForSupervisor` (removed per-ticker CRID check); used `'isActivityTicker' in chatMessage` guard for safe property access. (FIX 3) Increased `SOFT_TIMEOUT_MS` from 30 000 → 120 000 and `HARD_TIMEOUT_MS` from 90 000 → 300 000; removed the soft timeout `upsertResultMessage(softMsg)` banner emission (the soft timeout block now only logs) |
+| `client/src/components/results/LiveActivityTicker.tsx` | No changes — component was correct |
+| `client/src/components/results/RunResultBubble.tsx` | No changes — dedup was already in place from previous session |
+
+### Decisions Made
+- The ticker injection (FIX 1) and lead dedup (FIX 4) were already correctly in place from the previous session; no re-implementation was required.
+- The `isActive` prop was simplified to `isWaitingForSupervisor` rather than the per-ticker CRID check, following the spec. This means if the user sends a second query before the first run finishes (unusual), both tickers would be "active" simultaneously. Acceptable tradeoff for simplicity.
+- Soft timeout threshold raised to 2 minutes with no banner; hard timeout to 5 minutes with only a console.warn. This matches the expected AFR run duration for complex multi-loop searches.
+
+### What's Next
+- QA a live run to confirm the ticker appears below the intent narrative bubble and above the provisional RunResultBubble.
+- Verify that `reloop_iteration` and `evidence:*` artefact types are being stored with the correct `type` field values to match the ticker's classification logic.
+- The `ABSOLUTE_TIMEOUT_MS` (600 000 = 10 min) remains as the hard kill switch — no change requested.
