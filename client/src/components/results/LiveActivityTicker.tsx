@@ -480,6 +480,8 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [liveEvent, setLiveEvent] = useState<LiveEvent | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const fetchedIntentNarrativeRef = useRef<IntentNarrativePayload | null>(null);
+  const [fetchedIntentNarrative, setFetchedIntentNarrative] = useState<IntentNarrativePayload | null>(null);
 
   const fetchAndProcess = async () => {
     if (!runId && !clientRequestId) return;
@@ -499,10 +501,40 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
 
       const ephemeral = isActive ? deriveEphemeral(data.events) : null;
       if (ephemeral) setLiveEvent(ephemeral);
+
+      // Self-fetch intent narrative from artefacts (once)
+      if (!fetchedIntentNarrativeRef.current) {
+        try {
+          const artParams = new URLSearchParams();
+          if (clientRequestId) artParams.set('client_request_id', clientRequestId);
+          if (runId) artParams.set('runId', runId);
+          const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${artParams.toString()}`));
+          const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
+          if (artRes.ok) {
+            const artRows = await artRes.json();
+            if (Array.isArray(artRows)) {
+              const inRow = artRows.find((r: any) => r.type === 'intent_narrative');
+              if (inRow) {
+                let payload = inRow.payload_json;
+                if (typeof payload === 'string') {
+                  try { payload = JSON.parse(payload); } catch { payload = null; }
+                }
+                if (payload && typeof payload === 'object' && payload.entity_description) {
+                  fetchedIntentNarrativeRef.current = payload as IntentNarrativePayload;
+                  setFetchedIntentNarrative(payload as IntentNarrativePayload);
+                }
+              }
+            }
+          }
+        } catch {}
+      }
     } catch {}
   };
 
   useEffect(() => {
+    fetchedIntentNarrativeRef.current = null;
+    setFetchedIntentNarrative(null);
+
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -529,11 +561,12 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
     }
   }, [isActive]);
 
-  const hasAnything = milestones.length > 0 || !!liveEvent || !!intentNarrativePayload;
+  const hasAnything = milestones.length > 0 || !!liveEvent || !!intentNarrativePayload || !!fetchedIntentNarrative;
   if (!isActive && !hasAnything) return null;
 
+  const effectiveIntentNarrative = intentNarrativePayload || fetchedIntentNarrative;
   const showThinking = isActive && milestones.length === 0 && !liveEvent;
-  const showIntent = !!intentNarrativePayload?.entity_description;
+  const showIntent = !!effectiveIntentNarrative?.entity_description;
   const showEphemeral = isActive && !!liveEvent && !milestones.some(m => m.key === 'run_complete' || m.key === 'tower_verdict');
   const totalRows = (showThinking ? 1 : 0) + (showIntent ? 1 : 0) + milestones.length + (showEphemeral ? 1 : 0);
 
@@ -563,7 +596,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
             🧠
           </span>
           <span className="text-[13px] text-foreground/80 font-medium pt-0.5">
-            <span className="italic">{intentNarrativePayload!.entity_description}</span>
+            <span className="italic">{effectiveIntentNarrative!.entity_description}</span>
           </span>
         </div>
       )}

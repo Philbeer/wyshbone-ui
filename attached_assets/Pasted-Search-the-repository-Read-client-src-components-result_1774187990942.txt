@@ -1,0 +1,70 @@
+Search the repository. Read client/src/components/results/LiveActivityTicker.tsx fully before editing.
+
+Goal: Fix the missing intent narrative bubble in the LiveActivityTicker. The intent_narrative artefact IS being created (visible in Live Activity panel), but the ticker never shows it because it relies on an intentNarrativePayload prop that chat.tsx never passes.
+
+ROOT CAUSE: The AFR poll in chat.tsx injects intent_narrative as a separate message (id: `in-${effectiveKey}`) in the messages array, but the LiveActivityTicker component expects it via the intentNarrativePayload PROP. That prop is never wired from the message to the ticker.
+
+FIX: Make LiveActivityTicker self-sufficient. Add its own artefact fetch for intent_narrative alongside its existing stream polling. This way it doesn't depend on chat.tsx passing the prop.
+
+CHANGES to LiveActivityTicker.tsx ONLY:
+
+1. Add a new state variable:
+   const [fetchedIntentNarrative, setFetchedIntentNarrative] = useState<IntentNarrativePayload | null>(null);
+
+2. Inside the existing fetchAndProcess function, AFTER the stream fetch succeeds, add a second fetch to get artefacts and extract intent_narrative. Add this block after `if (ephemeral) setLiveEvent(ephemeral);`:
+
+   // Self-fetch intent narrative from artefacts (once)
+   if (!fetchedIntentNarrative) {
+     try {
+       const artParams = new URLSearchParams();
+       if (clientRequestId) artParams.set('client_request_id', clientRequestId);
+       if (runId) artParams.set('runId', runId);
+       const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${artParams.toString()}`));
+       const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
+       if (artRes.ok) {
+         const artRows = await artRes.json();
+         if (Array.isArray(artRows)) {
+           const inRow = artRows.find((r: any) => r.type === 'intent_narrative');
+           if (inRow) {
+             let payload = inRow.payload_json;
+             if (typeof payload === 'string') {
+               try { payload = JSON.parse(payload); } catch { payload = null; }
+             }
+             if (payload && typeof payload === 'object' && payload.entity_description) {
+               setFetchedIntentNarrative(payload as IntentNarrativePayload);
+             }
+           }
+         }
+       }
+     } catch {}
+   }
+
+   IMPORTANT: The fetchedIntentNarrative variable needs to be accessible inside fetchAndProcess. Since fetchAndProcess is defined inside the component, it can access the state. But to avoid stale closure issues with the `if (!fetchedIntentNarrative)` check, use a ref instead:
+
+   const fetchedIntentNarrativeRef = useRef<IntentNarrativePayload | null>(null);
+   const [fetchedIntentNarrative, setFetchedIntentNarrative] = useState<IntentNarrativePayload | null>(null);
+
+   Then in the fetch block use: if (!fetchedIntentNarrativeRef.current) { ... }
+   And when setting: fetchedIntentNarrativeRef.current = payload; setFetchedIntentNarrative(payload);
+
+3. In the render section, merge the prop and self-fetched value:
+   Change the showIntent calculation from:
+     const showIntent = !!intentNarrativePayload?.entity_description;
+   To:
+     const effectiveIntentNarrative = intentNarrativePayload || fetchedIntentNarrative;
+     const showIntent = !!effectiveIntentNarrative?.entity_description;
+
+4. Update the intent render block to use effectiveIntentNarrative:
+   Change: {intentNarrativePayload!.entity_description}
+   To: {effectiveIntentNarrative!.entity_description}
+
+5. Update the hasAnything check:
+   Change: const hasAnything = milestones.length > 0 || !!liveEvent || !!intentNarrativePayload;
+   To: const hasAnything = milestones.length > 0 || !!liveEvent || !!intentNarrativePayload || !!fetchedIntentNarrative;
+
+6. Reset fetchedIntentNarrative when runId/clientRequestId changes. Add to the existing useEffect that clears state:
+   In the useEffect with deps [isActive, runId, clientRequestId], add at the top:
+     fetchedIntentNarrativeRef.current = null;
+     setFetchedIntentNarrative(null);
+
+Do NOT change chat.tsx. Do NOT change any milestone/ephemeral logic. Only add the self-fetch mechanism and merge it with the existing prop.
