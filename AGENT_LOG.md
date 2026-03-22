@@ -4,6 +4,44 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ---
 
+## Session: LiveActivityTicker milestone redesign (2026-03-22 #2)
+
+### Goals
+Redesign the ticker from a per-event pinned approach to a 5-milestone breadcrumb trail with ephemeral cycling steps in between, and longer vertical connecting lines.
+
+### What Changed
+
+#### `client/src/components/results/LiveActivityTicker.tsx` (full rewrite)
+- **Milestone state** replaces `pinnedEvents` state: `const [milestones, setMilestones] = useState<Milestone[]>([])`.
+- **`deriveMilestones(events)`** runs on every poll and derives up to 5 named milestones from ALL stream events:
+  - `gp_search` 🔍 — consolidates ALL SEARCH_PLACES events into one line with the highest candidate count found.
+  - `web_evidence` 🌐 — appears when first web visit or evidence event fires; count updates live each poll.
+  - `evidence_done` 📋 — when verification summary appears (extracts "N/M checks passed" pattern).
+  - `tower_verdict` ⚖️ — Tower quality check with PASS/FAIL verdict extracted.
+  - `run_complete` ✅ — "N verified results delivered" (or "Run complete" fallback).
+  - `reloop` 🔄 — injected after `gp_search` when a reloop event without STOP_DELIVER/COMPLETE is found.
+- **`deriveEphemeral(events)`** picks the most recent non-milestone event for the cycling line (visiting domain, checking name, verifying name, executing tool, etc).
+- **Layout**: full-height vertical connector (`absolute left-[7px] w-0.5 bg-border`), dots `h-2.5 w-2.5 border-2 rounded-full` centred on the line, `pb-5` spacing between milestones for longer vertical gaps.
+- **Dot colours**: green for `run_complete`, amber for `tower_verdict`, primary for everything else.
+- **ThinkingBrains** unchanged — shown when `milestones.length === 0 && !liveEvent`.
+- `intentNarrativePayload` prop kept for future use; no rendering changes to `chat.tsx`.
+
+### Files Modified
+| File | Change |
+|---|---|
+| `client/src/components/results/LiveActivityTicker.tsx` | Full rewrite — milestone-based breadcrumb trail |
+
+### Decisions Made
+- `web_evidence` milestone text updates on every poll (webVisitCount re-derived from all events), so the count grows live without separate state.
+- `reloop` is inserted at position 1 (after gp_search) rather than appended, so the timeline order is chronologically correct.
+- Old `PinnedEvent` interface and `classifyEvent` function fully removed.
+- `intentNarrativePayload` prop retained; rendering inside the ticker deferred to a future session.
+
+### Status
+- HMR confirmed clean; no TypeScript/console errors.
+
+---
+
 ## Session: LiveActivityTicker + chat.tsx final wiring (2026-03-22)
 
 ### Goals

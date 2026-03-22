@@ -1,0 +1,254 @@
+Search the repository. Read client/src/components/results/LiveActivityTicker.tsx thoroughly before making changes.
+GOAL: Redesign the ticker to show ~5 key milestone lines with ephemeral cycling steps in between, and longer vertical connecting lines like the activity panel.
+The breadcrumb trail should tell the story of a run. Based on real run data, the milestones are:
+
+🔍 Google Places — found N candidates (ONE line, consolidating all GP search sub-queries)
+🌐 Checking N websites for evidence (when web visits begin)
+⚖️ Evidence verified: N/M checks passed (when evidence verification completes)
+⚖️ Quality check: PASS/FAIL (Tower verdict on combined delivery)
+✅ N verified results delivered (run complete)
+
+Between milestones, ephemeral events cycle on a single line that replaces itself.
+STEP 1: Rewrite the event classification in LiveActivityTicker.tsx
+Replace the current classifyEvent function and pinned event logic. Instead of pinning every SEARCH_PLACES event separately (which creates 5 duplicate "Google Places search" lines), consolidate into milestones.
+The component should maintain milestone state, not per-event pinned state:
+typescriptinterface Milestone {
+  key: string;
+  icon: string;
+  text: string;
+  timestamp: number;
+}
+Process ALL events on each poll to derive milestones:
+typescriptfunction deriveMilestones(events: StreamEvent[]): Milestone[] {
+  const milestones: Milestone[] = [];
+  
+  // Milestone 1: Google Places search (consolidate ALL search_places events into one)
+  const gpEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    return s.includes('SEARCH_PLACES') || s.includes('SEARCH PLACES') || t.includes('SEARCH_PLACES') || t.includes('SEARCH PLACES');
+  });
+  if (gpEvents.length > 0) {
+    // Find the one with the highest lead count, or the last completed one
+    let maxCount = 0;
+    for (const e of gpEvents) {
+      const count = extractCount(e.details?.task) ?? extractCount(e.summary) ?? 0;
+      if (count > maxCount) maxCount = count;
+    }
+    const text = maxCount > 0 
+      ? `Google Places — found ${maxCount} candidates`
+      : `Google Places search`;
+    milestones.push({ key: 'gp_search', icon: '🔍', text, timestamp: new Date(gpEvents[0].ts).getTime() });
+  }
+  
+  // Milestone 2: Website evidence checking started (when first WEB_VISIT or evidence event appears)
+  const webVisitEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    return s.includes('WEB VISIT') || s.includes('WEB_VISIT') || s.includes('VISITING');
+  });
+  const evidenceEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.type || '').toLowerCase();
+    return s.includes('EVIDENCE') || t.includes('evidence');
+  });
+  const webVisitCount = webVisitEvents.length;
+  if (webVisitCount > 0 || evidenceEvents.length > 0) {
+    const text = webVisitCount > 0 
+      ? `Checking ${webVisitCount} websites for evidence` 
+      : 'Checking evidence...';
+    const firstTs = webVisitEvents[0]?.ts || evidenceEvents[0]?.ts;
+    milestones.push({ key: 'web_evidence', icon: '🌐', text, timestamp: new Date(firstTs).getTime() });
+  }
+  
+  // Milestone 3: Evidence verification complete (look for verification summary event)
+  const verifyEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    return s.includes('EVIDENCE VERIF') || s.includes('VERIFICATION') || t.includes('VERIF') ||
+           s.includes('CHECKS PASSED') || t.includes('CHECKS PASSED');
+  });
+  if (verifyEvents.length > 0) {
+    const last = verifyEvents[verifyEvents.length - 1];
+    const task = last.details?.task || last.summary || '';
+    // Try to extract "9/12 checks passed" pattern
+    const match = task.match(/(\d+)\/(\d+)/);
+    const text = match 
+      ? `Evidence verified: ${match[1]}/${match[2]} checks passed`
+      : `Evidence verification complete`;
+    milestones.push({ key: 'evidence_done', icon: '📋', text, timestamp: new Date(last.ts).getTime() });
+  }
+  
+  // Milestone 4: Tower quality check (tower_judgement on combined_delivery or final)
+  const towerEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    const a = (e.details?.action || '').toLowerCase();
+    return s.includes('TOWER VERDICT') || s.includes('TOWER JUDGEMENT') || 
+           a.includes('tower_judgement') || s.includes('[TOWER]') ||
+           t.includes('TOWER VERDICT') || s.includes('QUALITY CHECK');
+  });
+  if (towerEvents.length > 0) {
+    const last = towerEvents[towerEvents.length - 1];
+    const task = last.details?.task || last.summary || '';
+    const verdictMatch = task.match(/(pass|fail|stop|accept|reject)/i);
+    const verdict = verdictMatch ? verdictMatch[1].toUpperCase() : '';
+    const text = verdict ? `Quality check: ${verdict}` : 'Quality check complete';
+    milestones.push({ key: 'tower_verdict', icon: '⚖️', text, timestamp: new Date(last.ts).getTime() });
+  }
+  
+  // Milestone 5: Run complete (execution completed or run completed)  
+  const completeEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    return s.includes('RUN COMPLETED') || s.includes('EXECUTION COMPLETED') || 
+           t.includes('RUN COMPLETED') || s.includes('MISSION-DRIVEN EXECUTION COMPLETE');
+  });
+  if (completeEvents.length > 0) {
+    const last = completeEvents[completeEvents.length - 1];
+    const task = last.details?.task || last.summary || '';
+    const countMatch = task.match(/(\d+)\s*leads/i);
+    const verdictMatch = task.match(/verdict=(\w+)/i);
+    let text = 'Run complete';
+    if (countMatch) {
+      text = `${countMatch[1]} verified results delivered`;
+    }
+    milestones.push({ key: 'run_complete', icon: '✅', text, timestamp: new Date(last.ts).getTime() });
+  }
+  
+  // Milestone: Reloop (only if multiple loops)
+  const reloopEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    return s.includes('RELOOP') || s.includes('RE-LOOP') || s.includes('RE_LOOP');
+  });
+  if (reloopEvents.length > 0) {
+    // Only show reloop milestone if it indicates trying again (not stop_deliver)
+    const reloopEvent = reloopEvents.find(e => {
+      const s = (e.summary || '').toUpperCase();
+      return !s.includes('STOP_DELIVER') && !s.includes('COMPLETE');
+    });
+    if (reloopEvent) {
+      milestones.splice(1, 0, { key: 'reloop', icon: '🔄', text: 'Not enough — trying another approach', timestamp: new Date(reloopEvent.ts).getTime() });
+    }
+  }
+  
+  return milestones;
+}
+For the ephemeral cycling line, derive from the LATEST event that is NOT a milestone-triggering event:
+typescriptfunction deriveEphemeral(events: StreamEvent[], milestoneKeys: Set<string>): LiveEvent | null {
+  // Get the most recent non-milestone event
+  let latest: LiveEvent | null = null;
+  let latestTs = 0;
+  
+  for (const event of events) {
+    const ts = new Date(event.ts).getTime();
+    if (ts <= latestTs) continue;
+    
+    const summary = event.summary || '';
+    const summaryUp = summary.toUpperCase();
+    const task = event.details?.task || '';
+    
+    // Skip events that are milestone-level
+    if (summaryUp.includes('SEARCH_PLACES') || summaryUp.includes('RUN COMPLETED') || summaryUp.includes('TOWER VERDICT')) continue;
+    
+    let icon = '⚙️';
+    let text = summary.slice(0, 50) || 'Processing...';
+    
+    if (summaryUp.includes('WEB VISIT') || summaryUp.includes('VISITING')) {
+      icon = '🌐';
+      // Try to extract domain
+      const urlMatch = (task || summary).match(/https?:\/\/(?:www\.)?([^/\s]+)/);
+      text = urlMatch ? `Visiting ${urlMatch[1]}...` : 'Visiting website...';
+    } else if (summaryUp.includes('EVIDENCE')) {
+      icon = '📄';
+      const nameMatch = (task || summary).match(/"([^"]+)"/);
+      text = nameMatch ? `Checking ${nameMatch[1]}...` : 'Checking evidence...';
+    } else if (summaryUp.includes('TOWER SEMANTIC') || summaryUp.includes('VERIF')) {
+      icon = '⚖️';
+      const nameMatch = (task || summary).match(/"([^"]+)"/);
+      text = nameMatch ? `Verifying ${nameMatch[1]}...` : 'Verifying...';
+    } else if (summaryUp.includes('EXECUTING') || summaryUp.includes('TOOL')) {
+      icon = '🔧';
+      const toolMatch = summary.match(/(?:Tool|Executing)[:\s]+(.+)/i);
+      text = toolMatch ? `${toolMatch[1].slice(0, 40)}...` : 'Executing...';
+    } else if (summaryUp.includes('ARTEFACT')) {
+      icon = '📦';
+      text = task ? task.slice(0, 50) : summary.slice(0, 50);
+    }
+    
+    latestTs = ts;
+    latest = { icon, text, timestamp: ts };
+  }
+  
+  return latest;
+}
+STEP 2: Update the rendering with longer vertical lines
+The vertical connecting lines between events should be LONGER — add more padding between rows. Use pb-4 instead of pb-2, and make the connecting line segment explicit:
+tsxreturn (
+  <div className="pl-4 relative py-2">
+    {/* Vertical connector line running full height */}
+    <div className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-border" />
+    
+    {/* Thinking brains when nothing yet */}
+    {isActive && milestones.length === 0 && !liveEvent && (
+      <div className="relative pb-5">
+        <span className="absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-primary/40 bg-card z-10" />
+        <div className="pl-5"><ThinkingBrains /></div>
+      </div>
+    )}
+    
+    {/* Milestone events with dots and long connectors */}
+    {milestones.map((ms, i) => (
+      <div key={ms.key} className="relative pb-5">
+        <span className={cn(
+          "absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 z-10",
+          ms.key === 'run_complete' 
+            ? "border-green-500 bg-green-500" 
+            : ms.key === 'tower_verdict'
+              ? "border-amber-500 bg-amber-500"
+              : "border-primary/60 bg-primary/60"
+        )} />
+        <div className="pl-5 flex items-center gap-2 text-xs text-foreground/80 font-medium">
+          <span>{ms.icon}</span>
+          <span>{ms.text}</span>
+        </div>
+      </div>
+    ))}
+    
+    {/* Ephemeral cycling line (between milestones) */}
+    {isActive && liveEvent && (
+      <div className="relative pb-3">
+        <span className="absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-muted-foreground/30 bg-card animate-pulse z-10" />
+        <div className="pl-5 flex items-center gap-2 text-xs text-muted-foreground/60">
+          <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
+          <span className="transition-all duration-300">{liveEvent.text}</span>
+        </div>
+      </div>
+    )}
+  </div>
+);
+STEP 3: The milestone 2 text should UPDATE as web visits progress
+The "Checking N websites" milestone should update its count as more web visits happen. Since milestones are re-derived on every poll, this happens automatically — the webVisitCount increases each poll cycle.
+STEP 4: Remove the old pinnedEvents state and replace with milestones
+Replace:
+typescriptconst [pinnedEvents, setPinnedEvents] = useState<PinnedEvent[]>([]);
+With:
+typescriptconst [milestones, setMilestones] = useState<Milestone[]>([]);
+In fetchAndProcess, replace the pinned event logic with:
+typescriptconst newMilestones = deriveMilestones(data.events);
+setMilestones(newMilestones);
+
+const milestoneKeys = new Set(newMilestones.map(m => m.key));
+const ephemeral = isActive ? deriveEphemeral(data.events, milestoneKeys) : null;
+if (ephemeral) setLiveEvent(ephemeral);
+STEP 5: Intent narrative prop (for future)
+Keep the intentNarrativePayload prop if it exists, but for now just focus on the milestone timeline working correctly. The intent narrative card can be added inside the timeline later.
+Important:
+
+Do NOT change how the ticker is injected into chat.tsx — only change LiveActivityTicker.tsx
+The milestone text for "Checking N websites" should update on each poll as more web visits complete
+The run_complete milestone should only appear when the run actually finishes
+The vertical connector line should run the full height of the component
+Dots should sit ON the connector line (centered on it)
+Keep the ThinkingBrains component unchanged
+
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).

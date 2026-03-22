@@ -22,7 +22,7 @@ export interface LiveActivityTickerProps {
   intentNarrativePayload?: IntentNarrativePayload | null;
 }
 
-interface PinnedEvent {
+interface Milestone {
   key: string;
   icon: string;
   text: string;
@@ -74,68 +74,182 @@ function extractCount(text: string | null | undefined): number | null {
   return m ? parseInt(m[1], 10) : null;
 }
 
-function classifyEvent(event: StreamEvent): { pinned: PinnedEvent | null; ephemeral: LiveEvent | null } {
-  const type = (event.type || '').toLowerCase();
-  const summary = event.summary || '';
-  const details = event.details || {};
-  const task = details.task || '';
-  const ts = event.ts ? new Date(event.ts).getTime() : Date.now();
+function deriveMilestones(events: StreamEvent[]): Milestone[] {
+  const milestones: Milestone[] = [];
 
-  const matchesSummaryOrTask = (pattern: RegExp) =>
-    pattern.test(summary) || pattern.test(task);
-
-  if (matchesSummaryOrTask(/SEARCH_PLACES|SEARCH PLACES|Google Places/i) || /search_places|gp_cascade/.test(type)) {
-    const count = extractCount(task) ?? extractCount(summary);
-    const text = count != null
-      ? `Google Places — found ${count} results`
+  // Milestone 1: Google Places search — consolidate ALL search_places events into one
+  const gpEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    return (
+      s.includes('SEARCH_PLACES') || s.includes('SEARCH PLACES') ||
+      t.includes('SEARCH_PLACES') || t.includes('SEARCH PLACES')
+    );
+  });
+  if (gpEvents.length > 0) {
+    let maxCount = 0;
+    for (const e of gpEvents) {
+      const count = extractCount(e.details?.task) ?? extractCount(e.summary) ?? 0;
+      if (count > maxCount) maxCount = count;
+    }
+    const text = maxCount > 0
+      ? `Google Places — found ${maxCount} candidates`
       : 'Google Places search';
-    return { pinned: { key: `search_places-${event.id}`, icon: '🔍', text, timestamp: ts }, ephemeral: null };
+    milestones.push({ key: 'gp_search', icon: '🔍', text, timestamp: new Date(gpEvents[0].ts).getTime() });
   }
 
-  if (matchesSummaryOrTask(/WEB.?SEARCH|GPT.?4o search|web search/i)) {
-    return { pinned: { key: `web_search-${event.id}`, icon: '🌐', text: 'Web search complete', timestamp: ts }, ephemeral: null };
+  // Milestone 2: Website evidence checking (when web visits begin)
+  const webVisitEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    return s.includes('WEB VISIT') || s.includes('WEB_VISIT') || s.includes('VISITING');
+  });
+  const evidenceEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.type || '').toLowerCase();
+    return s.includes('EVIDENCE') || t.includes('evidence');
+  });
+  const webVisitCount = webVisitEvents.length;
+  if (webVisitCount > 0 || evidenceEvents.length > 0) {
+    const text = webVisitCount > 0
+      ? `Checking ${webVisitCount} websites for evidence`
+      : 'Checking evidence...';
+    const firstTs = webVisitEvents[0]?.ts || evidenceEvents[0]?.ts;
+    milestones.push({ key: 'web_evidence', icon: '🌐', text, timestamp: new Date(firstTs).getTime() });
   }
 
-  if (matchesSummaryOrTask(/reloop|re.?loop/i) || /reloop/.test(type)) {
-    return { pinned: { key: `reloop-${event.id}`, icon: '🔄', text: 'Re-loop: trying another approach', timestamp: ts }, ephemeral: null };
+  // Milestone 3: Evidence verification complete
+  const verifyEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    return (
+      s.includes('EVIDENCE VERIF') || s.includes('VERIFICATION') || t.includes('VERIF') ||
+      s.includes('CHECKS PASSED') || t.includes('CHECKS PASSED')
+    );
+  });
+  if (verifyEvents.length > 0) {
+    const last = verifyEvents[verifyEvents.length - 1];
+    const task = last.details?.task || last.summary || '';
+    const match = task.match(/(\d+)\/(\d+)/);
+    const text = match
+      ? `Evidence verified: ${match[1]}/${match[2]} checks passed`
+      : 'Evidence verification complete';
+    milestones.push({ key: 'evidence_done', icon: '📋', text, timestamp: new Date(last.ts).getTime() });
   }
 
-  if (/tower_evaluation|tower_judgement/.test(type) || matchesSummaryOrTask(/Tower verdict|tower evaluation|tower judgement/i)) {
-    const verdict = details.results || details.action || task || summary || 'unknown';
-    return { pinned: { key: `tower_eval-${event.id}`, icon: '⚖️', text: `Quality check: ${verdict.slice(0, 40)}`, timestamp: ts }, ephemeral: null };
+  // Milestone 4: Tower quality check
+  const towerEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    const a = (e.details?.action || '').toLowerCase();
+    return (
+      s.includes('TOWER VERDICT') || s.includes('TOWER JUDGEMENT') ||
+      a.includes('tower_judgement') || s.includes('[TOWER]') ||
+      t.includes('TOWER VERDICT') || s.includes('QUALITY CHECK')
+    );
+  });
+  if (towerEvents.length > 0) {
+    const last = towerEvents[towerEvents.length - 1];
+    const task = last.details?.task || last.summary || '';
+    const verdictMatch = task.match(/(pass|fail|stop|accept|reject)/i);
+    const verdict = verdictMatch ? verdictMatch[1].toUpperCase() : '';
+    const text = verdict ? `Quality check: ${verdict}` : 'Quality check complete';
+    milestones.push({ key: 'tower_verdict', icon: '⚖️', text, timestamp: new Date(last.ts).getTime() });
   }
 
-  if (matchesSummaryOrTask(/Run Completed|Execution Completed/i) || /run_completed|reloop_chain_summary/.test(type)) {
-    return { pinned: { key: 'run_completed', icon: '✅', text: 'Complete', timestamp: ts }, ephemeral: null };
+  // Milestone 5: Run complete
+  const completeEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    return (
+      s.includes('RUN COMPLETED') || s.includes('EXECUTION COMPLETED') ||
+      t.includes('RUN COMPLETED') || s.includes('MISSION-DRIVEN EXECUTION COMPLETE')
+    );
+  });
+  if (completeEvents.length > 0) {
+    const last = completeEvents[completeEvents.length - 1];
+    const task = last.details?.task || last.summary || '';
+    const countMatch = task.match(/(\d+)\s*leads/i);
+    const text = countMatch
+      ? `${countMatch[1]} verified results delivered`
+      : 'Run complete';
+    milestones.push({ key: 'run_complete', icon: '✅', text, timestamp: new Date(last.ts).getTime() });
   }
 
-  if (matchesSummaryOrTask(/WEB VISIT|Visiting/i) || /web.?visit/.test(type)) {
-    return { pinned: null, ephemeral: { icon: '🌐', text: 'Visiting website...', timestamp: ts } };
+  // Milestone: Reloop (insert after gp_search if present)
+  const reloopEvents = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    return s.includes('RELOOP') || s.includes('RE-LOOP') || s.includes('RE_LOOP');
+  });
+  if (reloopEvents.length > 0) {
+    const reloopEvent = reloopEvents.find(e => {
+      const s = (e.summary || '').toUpperCase();
+      return !s.includes('STOP_DELIVER') && !s.includes('COMPLETE');
+    });
+    if (reloopEvent) {
+      const gpIdx = milestones.findIndex(m => m.key === 'gp_search');
+      const insertAt = gpIdx >= 0 ? gpIdx + 1 : 1;
+      milestones.splice(insertAt, 0, {
+        key: 'reloop',
+        icon: '🔄',
+        text: 'Not enough — trying another approach',
+        timestamp: new Date(reloopEvent.ts).getTime(),
+      });
+    }
   }
 
-  if (matchesSummaryOrTask(/Evidence/i) || /evidence/.test(type)) {
-    return { pinned: null, ephemeral: { icon: '📄', text: 'Checking evidence...', timestamp: ts } };
+  return milestones;
+}
+
+function deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
+  let latest: LiveEvent | null = null;
+  let latestTs = 0;
+
+  for (const event of events) {
+    const ts = new Date(event.ts).getTime();
+    if (ts <= latestTs) continue;
+
+    const summary = event.summary || '';
+    const summaryUp = summary.toUpperCase();
+    const task = event.details?.task || '';
+
+    // Skip milestone-level events
+    if (
+      summaryUp.includes('SEARCH_PLACES') ||
+      summaryUp.includes('RUN COMPLETED') ||
+      summaryUp.includes('TOWER VERDICT') ||
+      summaryUp.includes('EXECUTION COMPLETED') ||
+      summaryUp.includes('MISSION-DRIVEN EXECUTION COMPLETE')
+    ) continue;
+
+    let icon = '⚙️';
+    let text = summary.slice(0, 50) || 'Processing...';
+
+    if (summaryUp.includes('WEB VISIT') || summaryUp.includes('VISITING')) {
+      icon = '🌐';
+      const urlMatch = (task || summary).match(/https?:\/\/(?:www\.)?([^/\s]+)/);
+      text = urlMatch ? `Visiting ${urlMatch[1]}...` : 'Visiting website...';
+    } else if (summaryUp.includes('EVIDENCE')) {
+      icon = '📄';
+      const nameMatch = (task || summary).match(/"([^"]+)"/);
+      text = nameMatch ? `Checking ${nameMatch[1]}...` : 'Checking evidence...';
+    } else if (summaryUp.includes('TOWER SEMANTIC') || summaryUp.includes('VERIF')) {
+      icon = '⚖️';
+      const nameMatch = (task || summary).match(/"([^"]+)"/);
+      text = nameMatch ? `Verifying ${nameMatch[1]}...` : 'Verifying...';
+    } else if (summaryUp.includes('EXECUTING') || summaryUp.includes('TOOL')) {
+      icon = '🔧';
+      const toolMatch = summary.match(/(?:Tool|Executing)[:\s]+(.+)/i);
+      text = toolMatch ? `${toolMatch[1].slice(0, 40)}...` : 'Executing...';
+    } else if (summaryUp.includes('ARTEFACT')) {
+      icon = '📦';
+      text = task ? task.slice(0, 50) : summary.slice(0, 50);
+    }
+
+    latestTs = ts;
+    latest = { icon, text, timestamp: ts };
   }
 
-  if (matchesSummaryOrTask(/Tower semantic|Verif/i) || /tower_semantic|verif/.test(type)) {
-    return { pinned: null, ephemeral: { icon: '⚖️', text: 'Verifying...', timestamp: ts } };
-  }
-
-  if (matchesSummaryOrTask(/Tool Completed/i) || /tool_call/.test(type)) {
-    const toolMatch = summary.match(/Tool Completed:\s*(.+)/i) || task.match(/Tool[:\s]+(.+)/i);
-    const toolName = toolMatch ? toolMatch[1].trim() : (details.action || details.label || '');
-    const text = toolName ? `${toolName.slice(0, 40)}...` : 'Running tool...';
-    return { pinned: null, ephemeral: { icon: '🔧', text, timestamp: ts } };
-  }
-
-  if (matchesSummaryOrTask(/Executing/i) || /step_started/.test(type)) {
-    const label = details.label || details.task || details.action || summary;
-    const text = label ? `${label.slice(0, 50)}...` : 'Executing...';
-    return { pinned: null, ephemeral: { icon: '⚙️', text, timestamp: ts } };
-  }
-
-  const fallbackText = summary ? summary.slice(0, 50) : 'Processing...';
-  return { pinned: null, ephemeral: { icon: '⚙️', text: fallbackText, timestamp: ts } };
+  return latest;
 }
 
 function ThinkingBrains() {
@@ -166,31 +280,8 @@ function ThinkingBrains() {
   );
 }
 
-function IntentNarrativeCard({ payload }: { payload: IntentNarrativePayload }) {
-  return (
-    <div className="rounded-lg border bg-card/50 px-3 py-2 space-y-1 my-1">
-      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-        <span>🧠</span> Here's what I understood
-      </div>
-      {payload.entity_description && (
-        <p className="text-xs text-foreground leading-snug">{payload.entity_description}</p>
-      )}
-      {payload.entity_exclusions && payload.entity_exclusions.length > 0 && (
-        <div className="text-[10px] text-muted-foreground">
-          <span className="font-medium">Not:</span> {payload.entity_exclusions.join(', ')}
-        </div>
-      )}
-      {payload.findability && (
-        <div className="text-[10px] text-muted-foreground">
-          How findable: <span className="font-medium">{payload.findability.replace('_', ' ')}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNarrativePayload }: LiveActivityTickerProps) {
-  const [pinnedEvents, setPinnedEvents] = useState<PinnedEvent[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [liveEvent, setLiveEvent] = useState<LiveEvent | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -207,35 +298,11 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
       const data: StreamResponse = await res.json();
       if (!data || !Array.isArray(data.events)) return;
 
-      const newPinned: PinnedEvent[] = [];
-      let latestEphemeral: LiveEvent | null = null;
-      let latestEphemeralTs = 0;
+      const newMilestones = deriveMilestones(data.events);
+      setMilestones(newMilestones);
 
-      for (const event of data.events) {
-        const { pinned, ephemeral } = classifyEvent(event);
-        if (pinned) {
-          newPinned.push(pinned);
-        } else if (ephemeral && ephemeral.timestamp > latestEphemeralTs) {
-          latestEphemeralTs = ephemeral.timestamp;
-          latestEphemeral = ephemeral;
-        }
-      }
-
-      if (newPinned.length > 0) {
-        setPinnedEvents(prev => {
-          const merged = [...prev];
-          for (const evt of newPinned) {
-            if (!merged.some(e => e.key === evt.key)) {
-              merged.push(evt);
-            }
-          }
-          return merged.slice(-5);
-        });
-      }
-
-      if (isActive && latestEphemeral) {
-        setLiveEvent(latestEphemeral);
-      }
+      const ephemeral = isActive ? deriveEphemeral(data.events) : null;
+      if (ephemeral) setLiveEvent(ephemeral);
     } catch {}
   };
 
@@ -266,58 +333,49 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
     }
   }, [isActive]);
 
-  const hasAnything = pinnedEvents.length > 0 || !!liveEvent || !!intentNarrativePayload;
+  const hasAnything = milestones.length > 0 || !!liveEvent || !!intentNarrativePayload;
   if (!isActive && !hasAnything) return null;
 
   return (
-    <div className="border-l-2 border-primary/20 pl-3 space-y-0 py-2 relative">
-      {/* Thinking brains when nothing yet */}
-      {isActive && pinnedEvents.length === 0 && !liveEvent && !intentNarrativePayload && (
-        <div className="relative pl-4 pb-2">
-          <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/40" />
-          <ThinkingBrains />
-        </div>
-      )}
+    <div className="pl-4 relative py-2">
+      {/* Vertical connector line running full height */}
+      <div className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-border" />
 
-      {/* First pinned event (if any) */}
-      {pinnedEvents.length > 0 && (
-        <div key={pinnedEvents[0].key} className="relative pl-4 pb-2">
-          <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/60" />
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{pinnedEvents[0].icon}</span>
-            <span>{pinnedEvents[0].text}</span>
+      {/* Thinking brains when nothing yet */}
+      {isActive && milestones.length === 0 && !liveEvent && (
+        <div className="relative pb-5">
+          <span className="absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-primary/40 bg-card z-10" />
+          <div className="pl-5">
+            <ThinkingBrains />
           </div>
         </div>
       )}
 
-      {/* Intent narrative card — after first pinned, or standalone if no pinned */}
-      {intentNarrativePayload && (
-        <div className="relative pl-4 pb-2">
-          <span className="absolute left-[-5px] top-2 h-2 w-2 rounded-full bg-primary/40" />
-          <IntentNarrativeCard payload={intentNarrativePayload} />
-        </div>
-      )}
-
-      {/* Remaining pinned events */}
-      {pinnedEvents.slice(1).map((evt) => (
-        <div key={evt.key} className="relative pl-4 pb-2">
-          <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/60" />
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{evt.icon}</span>
-            <span>{evt.text}</span>
+      {/* Milestone events */}
+      {milestones.map((ms) => (
+        <div key={ms.key} className="relative pb-5">
+          <span className={cn(
+            "absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 z-10",
+            ms.key === 'run_complete'
+              ? "border-green-500 bg-green-500"
+              : ms.key === 'tower_verdict'
+                ? "border-amber-500 bg-amber-500"
+                : "border-primary/60 bg-primary/60"
+          )} />
+          <div className="pl-5 flex items-center gap-2 text-xs text-foreground/80 font-medium">
+            <span>{ms.icon}</span>
+            <span>{ms.text}</span>
           </div>
         </div>
       ))}
 
-      {/* No pinned events, no intent narrative yet — thinking brains already shown above */}
-
-      {/* Live ephemeral line */}
+      {/* Ephemeral cycling line */}
       {isActive && liveEvent && (
-        <div className="relative pl-4 pb-1" key={liveEvent.timestamp}>
-          <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/30 animate-pulse" />
-          <div className="flex items-center gap-2 text-xs text-muted-foreground/70 animate-pulse">
+        <div className="relative pb-3">
+          <span className="absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-muted-foreground/30 bg-card animate-pulse z-10" />
+          <div className="pl-5 flex items-center gap-2 text-xs text-muted-foreground/60">
             <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
-            <span className="transition-opacity duration-300">{liveEvent.text}</span>
+            <span className="transition-all duration-300">{liveEvent.text}</span>
           </div>
         </div>
       )}
